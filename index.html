@@ -16,12 +16,12 @@ select{color-scheme:dark}audio{display:block;width:100%;margin:12px 0}pre{white-
 fieldset{border:0;padding:0;margin:0}legend{font-weight:700;margin-bottom:.5rem}.metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.metric{padding:10px;border-radius:12px;background:#263651;font-size:.85rem}
 .metric strong{display:block;font-size:1.1rem}progress{width:100%;height:12px;accent-color:#6ce4c5;margin:12px 0}ul{padding-left:20px}.check{display:flex;align-items:center;gap:10px;margin:12px 0}.check input{width:20px;height:20px;flex:none}.check{line-height:1.4}.warning{border-left:3px solid #facb74;padding-left:10px}
 </style></head><body><main>
-<span class="label">LABORATORIO INDEPENDIENTE · BENCHMARK V0.3</span>
+<span class="label">LABORATORIO INDEPENDIENTE · CONTROL HUMANO V0.4</span>
 <h1>VOX Speak 3.0 · Motor fonético local</h1>
-<p class="muted">Comparación controlada de LJSpeech Gruut en Chrome Android. <strong>No mide calidad de pronunciación</strong>. Las discrepancias con IPA son solo investigación técnica.</p>
+<p class="muted">Comparación controlada de LJSpeech Gruut con voz humana LibriSpeech y eSpeak en Chrome Android. <strong>No mide calidad de pronunciación</strong>. Las discrepancias con IPA son solo investigación técnica.</p>
 <div class="card"><h2>1. Prepara una frase</h2>
 <label for="phrase">Frase sugerida</label>
-<select id="phrase"><option>I think this is important.</option><option>I work in sales.</option><option>I achieved my sales targets.</option></select>
+<select id="phrase"><option>I think this is important.</option><option>I work in sales.</option><option>I achieved my sales targets.</option><option>How would the papers talk about it?</option><option>She had not been able to get away this morning.</option></select>
 <p id="prompt" class="muted">Di en inglés: “I think this is important.”</p>
 <button type="button" id="record">🎙 Grabar mi voz (máx. 10 segundos)</button>
 <button type="button" id="stop" class="secondary" disabled>■ Detener grabación</button>
@@ -31,6 +31,12 @@ fieldset{border:0;padding:0;margin:0}legend{font-weight:700;margin-bottom:.5rem}
 <label for="upload">Archivo de audio (WebM, WAV, M4A compatible)</label><input id="upload" type="file" accept="audio/*">
 <button type="button" id="reference" class="secondary">🎧 Usar control sintético eSpeak (no nativo)</button>
 <p class="muted">Este control contiene la frase «I work in sales», pero es una voz mecánica generada por eSpeak; <strong>no es una referencia humana nativa</strong>.</p>
+<hr style="border:0;border-top:1px solid #334560;margin:20px 0">
+<h3>Control de voz humana (LibriSpeech dev-clean)</h3>
+<p class="muted">Grabaciones humanas reales de una lectura, hablante 2277. Nacionalidad y acento nativo <strong>no verificados</strong>. Incluimos las transcripciones originales, no un alineamiento fonético validado.</p>
+<button type="button" class="secondary" data-human-control="0">👤 Control humano A · «How would the papers talk about it?»</button>
+<button type="button" class="secondary" data-human-control="1">👤 Control humano B · «She had not been able to get away this morning»</button>
+<p class="muted" style="font-size:.85rem">Fuente: LibriSpeech <code>dev-clean</code> · grabaciones 2277-149896-0004 y -0012 · licencia <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer" style="color:#6ce4c5">CC BY 4.0</a>. Corpus Panayotov et al. (2015); WAV convertido a 16 kHz por WhisPaste. <a href="https://github.com/whispaste/whispaste/blob/594e7272700e2d3e827512c7e876b26eef6f1ddf/website/scripts/librispeech-sample/ATTRIBUTION.md" target="_blank" rel="noopener noreferrer" style="color:#6ce4c5">Procedencia y crédito</a>.</p>
 </div>
 <div class="card"><h2>2. Ejecuta la inferencia</h2>
 <p class="warning">La primera descarga Q4 ronda 90 MB. Se repite Q4 exactamente dos veces usando el MISMO audio PCM. Puedes comparar FP16 (189 MB adicionales) si tu dispositivo tiene memoria y Wi-Fi suficientes.</p>
@@ -49,10 +55,10 @@ fieldset{border:0;padding:0;margin:0}legend{font-weight:700;margin-bottom:.5rem}
 <div class="card"><h2>3. Resultados de comparación IPA (sin puntuar)</h2>
 <pre id="ipa" aria-live="polite">—</pre>
 <div id="comparison"></div>
-<p id="technical" class="muted">Comparación textual contra transcripción IPA aproximada de la frase, NO es evaluación de la calidad de tu pronunciación. El modelo puede fallar ante acentos o audio sintético.</p>
+<p id="technical" class="muted">Solo algunas frases tienen transcripción IPA estimada. Para los controles humanos mostramos la transcripción ortográfica confirmada y fonemas detectados, sin distancia IPA calculada. El modelo puede fallar ante acentos o audio sintético.</p>
 <button type="button" id="copy" class="secondary" disabled>Copiar resultados para revisión</button>
 </div>
 <small>Privacidad: la inferencia del modelo se realiza en tu navegador después de descargar sus archivos desde Hugging Face. No enviamos tu audio a Azure ni lo subimos a nuestro servidor. Los modelos y librerías se descargan de servicios externos. No guardamos tu voz de forma permanente. En caso de error, copia el mensaje completo para corregirlo.</small>
 </main>
-<script type="module" src="./lab.js?v=benchmark-v3"></script>
+<script type="module" src="./lab.js?v=human-controls-v4"></script>
 </body></html>

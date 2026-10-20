@@ -8,7 +8,7 @@ test('benchmark controls for reference audio, recording, FP16 are rendered',()=>
   assert.match(html,/no nativo/);assert.match(html,/189 MB/);
 });
 test('no external ONNX script fetched before user analyzes',()=>{
-  assert.match(html,/src="\.\/lab\.js\?v=benchmark-v3"/);
+  assert.match(html,/src="\.\/lab\.js\?v=human-controls-v4"/);
   assert.doesNotMatch(html,/transformers.*<script/i);
   assert.match(script,/analyze\.addEventListener\('click'/);
   assert.match(script,/prepareRecordedAudio\(audioBlob\)/);
