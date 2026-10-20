@@ -1,5 +1,5 @@
 import { prepareRecordedAudio } from './src/phonetics/audio-processor.js';
-import { LocalPhonemeEngine } from './src/phonetics/phonemes-local.js';
+import { LocalPhonemeEngine } from './src/phonetics/phonemes-local.js?v=ctc-v2';
 const $ = id => document.getElementById(id);
 const record = $('record'), stop = $('stop'), upload = $('upload'), analyze = $('analyze');
 const state = $('state'), recordStatus = $('record-status'), playback = $('playback'), progress = $('progress');
@@ -69,7 +69,7 @@ analyze.addEventListener('click',async()=>{
     mark=now();inferenceStartedAt=null;
     const response=await engine.analyze(prepared,{onProgress:info=>{
       if(info.stage==='inferencing'){inferenceStartedAt=now();metrics.initializationMs=inferenceStartedAt-mark;$('load').textContent=fmt(metrics.initializationMs);}
-      else {let pct=Number(info.percent);if(Number.isFinite(pct)){progress.hidden=false;progress.value=pct}state.textContent=`Motor: ${info.stage||info.type}${Number.isFinite(pct)?' · '+Math.round(pct)+'%':''}. Mantén la pantalla activa.`}
+      else {let pct=info.percent==null?NaN:Number(info.percent);if(Number.isFinite(pct)){progress.hidden=false;progress.value=pct}state.textContent=`Motor: ${info.stage||info.type}${Number.isFinite(pct)?' · '+Math.round(pct)+'%':''}. Mantén la pantalla activa.`}
     }});
     metrics.inferenceMs=response.inferenceMs;metrics.model=response.modelId;
     if(!Number.isFinite(metrics.initializationMs))metrics.initializationMs=now()-mark-response.inferenceMs;

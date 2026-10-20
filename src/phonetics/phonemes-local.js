@@ -13,7 +13,7 @@ export class LocalPhonemeError extends Error {
 
 export class LocalPhonemeEngine {
   constructor({
-    workerFactory = () => new Worker(new URL('./phoneme-worker.js', import.meta.url), { type: 'module' }),
+    workerFactory = () => new Worker(new URL('./phoneme-worker.js?v=ctc-v2', import.meta.url), { type: 'module' }),
     timeoutMs = 180_000,
   } = {}) {
     this.workerFactory = workerFactory;

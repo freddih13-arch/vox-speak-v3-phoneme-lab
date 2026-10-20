@@ -1,50 +1,64 @@
 /**
- * VOX Speak — experimental IPA transcription worker (no fabricated scores).
- * No network/model loading until an ANALYZE request is received.
- * Verified model metadata: onnx-community/wav2vec2-ljspeech-gruut-ONNX.
- * Actual model inference on Android still REQUIRES real-device validation.
+ * VOX Speak · experimental local phoneme CTC inference.
+ * Fix 0.2: Hugging Face's model repo ships vocab.json but no tokenizer.json;
+ * the generic ASR pipeline requests the missing tokenizer and fails before
+ * downloading ONNX. We instead load the audio feature extractor + CTC model
+ * directly, and decode logits with the model's exact IPA vocabulary.
+ *
+ * No model files are loaded until an ANALYZE message arrives. All audio
+ * stays in this browser. No per-phoneme scores or confidence are invented.
  */
+import { decodeCtcLogits } from './ctc-decode.js';
+import { GRUUT_VOCAB } from './vocab-gruut.js';
+
 const MODEL_ID = 'onnx-community/wav2vec2-ljspeech-gruut-ONNX';
 const MODEL_REVISION = '263beb019ab71cb258a97a35b0e10db9a4ddb670';
 const TRANSFORMERS_CDN = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1';
 const MAX_SAMPLES = 15 * 16_000;
-let pipelinePromise;
+let runtimePromise;
 let analyzing = false;
+let loadingStage = 'idle';
 
-const message = (requestId, type, payload = {}) => {
+function message(requestId, type, payload = {}) {
   self.postMessage({ requestId, type, ...payload });
-};
-
-async function getPipeline(requestId) {
-  if (!pipelinePromise) {
-    pipelinePromise = (async () => {
-      message(requestId, 'status', { stage: 'loading-library' });
-      const { pipeline, env } = await import(TRANSFORMERS_CDN);
-      // Cross-origin isolated headers are not supplied by GitHub Pages;
-      // one WASM thread avoids SharedArrayBuffer requirements.
+}
+function status(requestId, stage) {
+  loadingStage = stage;
+  message(requestId, 'status', { stage });
+}
+async function getRuntime(requestId) {
+  if (!runtimePromise) {
+    runtimePromise = (async () => {
+      status(requestId, 'loading-library');
+      const { AutoFeatureExtractor, AutoModelForCTC, env } = await import(TRANSFORMERS_CDN);
       env.backends.onnx.wasm.numThreads = 1;
       env.useBrowserCache = true;
-      message(requestId, 'status', { stage: 'loading-model' });
-      return await pipeline('automatic-speech-recognition', MODEL_ID, {
+      const options = {
         revision: MODEL_REVISION,
-        dtype: 'q4',
-        device: 'wasm',
-        progress_callback: (p) => {
-          if (!p || typeof p !== 'object') return;
-          const percent = Number(p.progress);
-          // Do not emit URLs, credentials, model binary or user audio.
+        progress_callback: event => {
+          if (!event || typeof event !== 'object') return;
+          const percentage = Number(event.progress);
           message(requestId, 'progress', {
-            stage: String(p.status || 'loading').slice(0, 40),
-            percent: Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : null,
+            stage: String(event.status || 'downloading').slice(0, 40),
+            percent: Number.isFinite(percentage) ? Math.min(100, Math.max(0, percentage)) : null,
           });
         },
+      };
+      status(requestId, 'loading-feature-extractor');
+      const extractor = await AutoFeatureExtractor.from_pretrained(MODEL_ID, options);
+      status(requestId, 'loading-onnx-model');
+      const model = await AutoModelForCTC.from_pretrained(MODEL_ID, {
+        ...options,
+        dtype: 'q4',
+        device: 'wasm',
       });
+      return { extractor, model };
     })().catch(error => {
-      pipelinePromise = null; // allow explicit retry after a failed download
+      runtimePromise = null;
       throw error;
     });
   }
-  return pipelinePromise;
+  return runtimePromise;
 }
 
 self.onmessage = async ({ data }) => {
@@ -58,32 +72,34 @@ self.onmessage = async ({ data }) => {
   analyzing = true;
   try {
     const audio = data.samples;
-    if (!(audio instanceof Float32Array) || audio.length < 1600 || audio.length > MAX_SAMPLES || data.sampleRate !== 16_000) {
-      throw Object.assign(new Error('Se requieren muestras Float32 mono a 16 kHz, de 0,1 a 15 segundos.'), { code: 'invalid-audio' });
+    if (!(audio instanceof Float32Array) || audio.length < 1600 ||
+        audio.length > MAX_SAMPLES || data.sampleRate !== 16_000) {
+      throw Object.assign(new Error('Se requiere Float32 mono de 0,1 a 15 segundos, a 16 kHz.'), { code: 'invalid-audio' });
     }
-    let sum = 0;
+    let energy = 0;
     for (const v of audio) {
-      if (!Number.isFinite(v)) throw Object.assign(new Error('La señal contiene datos inválidos.'), { code: 'invalid-audio' });
-      sum += v * v;
+      if (!Number.isFinite(v)) throw Object.assign(new Error('Audio no finito.'), { code: 'invalid-audio' });
+      energy += v * v;
     }
-    if (Math.sqrt(sum / audio.length) < 0.002) {
-      throw Object.assign(new Error('El audio es demasiado silencioso; graba de nuevo.'), { code: 'silence' });
+    if (Math.sqrt(energy / audio.length) < 0.002) {
+      throw Object.assign(new Error('Audio demasiado silencioso. Graba nuevamente.'), { code: 'silence' });
     }
-    const model = await getPipeline(requestId);
-    message(requestId, 'status', { stage: 'inferencing' });
+    const { extractor, model } = await getRuntime(requestId);
+    status(requestId, 'inferencing');
     const started = performance.now();
-    const result = await model(audio);
-    if (typeof result?.text !== 'string' || !result.text.trim()) {
-      throw Object.assign(new Error('El modelo no devolvió fonemas reconocibles.'), { code: 'no-phonemes' });
+    const inputs = await extractor(audio);
+    const { logits } = await model(inputs);
+    const decoded = decodeCtcLogits(logits, GRUUT_VOCAB);
+    if (!decoded.ipaRaw.trim()) {
+      throw Object.assign(new Error('El modelo no devolvió fonemas IPA reconocibles.'), { code: 'no-phonemes' });
     }
     message(requestId, 'result', {
       modelId: MODEL_ID,
       modelRevision: MODEL_REVISION,
-      engine: 'local-phoneme-experimental',
-      ipaRaw: result.text.trim(),
+      engine: 'local-phoneme-ctc-experimental',
+      ipaRaw: decoded.ipaRaw,
       sampleRate: 16_000,
       inferenceMs: Math.round(performance.now() - started),
-      // No confidence or articulation score is available from this pipeline.
       confidenceAvailable: false,
       phonemeScore: null,
       verifiedOnAndroid: false,
@@ -91,7 +107,7 @@ self.onmessage = async ({ data }) => {
   } catch (error) {
     message(requestId, 'error', {
       code: typeof error?.code === 'string' ? error.code : 'model-failed',
-      message: String(error?.message || 'No se pudo procesar la frase.').slice(0, 280),
+      message: `${loadingStage}: ${String(error?.message || 'Fallo de inferencia').slice(0, 380)}`,
     });
   } finally {
     analyzing = false;

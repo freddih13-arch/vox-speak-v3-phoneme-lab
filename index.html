@@ -16,7 +16,7 @@ select{color-scheme:dark}audio{display:block;width:100%;margin:12px 0}pre{white-
 fieldset{border:0;padding:0;margin:0}legend{font-weight:700;margin-bottom:.5rem}.metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.metric{padding:10px;border-radius:12px;background:#263651;font-size:.85rem}
 .metric strong{display:block;font-size:1.1rem}progress{width:100%;height:12px;accent-color:#6ce4c5;margin:12px 0}ul{padding-left:20px}.warning{border-left:3px solid #facb74;padding-left:10px}
 </style></head><body><main>
-<span class="label">LABORATORIO INDEPENDIENTE · SOLO PRUEBAS</span>
+<span class="label">LABORATORIO INDEPENDIENTE · CORRECCIÓN CTC V0.2</span>
 <h1>VOX Speak 3.0 · Motor fonético local</h1>
 <p class="muted">Prueba experimental de LJSpeech Gruut en Chrome Android. <strong>No mide todavía calidad de pronunciación</strong>: presenta la secuencia fonética que detecta el modelo, sin puntuaciones.</p>
 <div class="card"><h2>1. Prepara una frase</h2>
@@ -49,5 +49,5 @@ fieldset{border:0;padding:0;margin:0}legend{font-weight:700;margin-bottom:.5rem}
 </div>
 <small>Privacidad: la inferencia del modelo se realiza en tu navegador después de descargar sus archivos desde Hugging Face. No enviamos tu audio a Azure ni lo subimos a nuestro servidor. Los modelos y librerías se descargan de servicios externos. No guardamos tu voz de forma permanente. En caso de error, copia el mensaje completo para corregirlo.</small>
 </main>
-<script type="module" src="./lab.js"></script>
+<script type="module" src="./lab.js?v=ctc-v2"></script>
 </body></html>

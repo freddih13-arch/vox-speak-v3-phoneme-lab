@@ -28,3 +28,14 @@ python3 -m http.server 8765
 node --test tests/*.test.mjs
 python tests/browser_smoke.py
 ```
+
+
+## Corrección CTC v0.2 (error model-failed / Could not locate file)
+
+El repositorio de Hugging Face proporciona `vocab.json` y `onnx/model_q4.onnx`, pero no `tokenizer.json`. La antigua carga con `pipeline('automatic-speech-recognition')` puede solicitar ese archivo y fallar antes de cargar ONNX. Para evitarlo, ahora se usan `AutoFeatureExtractor.from_pretrained` y `AutoModelForCTC.from_pretrained` directamente, y un decodificador CTC greedy con el vocabulario IPA exacto (IDs 0-42 + especiales 43/44).
+
+La URL lleva un identificador de versión en los módulos del laboratorio para evitar reutilizar scripts antiguos cacheados. No cambia ningún archivo de producción ni staging. El comportamiento ONNX con el dispositivo Android aún debe validarse mediante la prueba real.
+
+Evidencia local: `node --test tests/*.test.mjs` (22/22 aprobadas), incluidas pruebas simuladas del worker y decodificador. Estas pruebas **no** descargan los 90 MB del modelo real ni validan su latencia.
+
+Si falla de nuevo, el texto ahora muestra el paso exacto (`loading-feature-extractor` o `loading-onnx-model`), útil para localizar un fallo de red/CORS o memoria diferente.
