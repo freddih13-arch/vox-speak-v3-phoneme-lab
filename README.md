@@ -1,41 +1,38 @@
-# VOX Speak 3.0 · laboratorio fonético ONNX (AISLADO)
+# VOX Speak 3.0 — Laboratorio de benchmark fonético v0.3
 
-Prueba real de reconocimiento IPA local en Chrome Android. Es una **copia experimental** de los tres archivos aprobados y no cambia `vox-speak-v3-staging/main` ni `vox-speak-free`.
+**AISLADO:** Repositorio `freddih13-arch/vox-speak-v3-phoneme-lab`. Este proyecto no modifica `vox-speak-v3-staging/main` ni `vox-speak-free`.
 
-## Uso
+## Qué responde este experimento
 
-1. Abrir en Chrome Android mediante URL HTTPS de GitHub Pages.
-2. Elegir una frase corta y pulsar «Grabar mi voz» (máx. 10 s).
-3. Pulsar «Detener grabación», reproducir el audio si se desea.
-4. Pulsar «Analizar fonemas con IA local». Solo entonces se descarga Transformers.js y el modelo `onnx-community/wav2vec2-ljspeech-gruut-ONNX` (Q4 ~89,8 MB, más archivos auxiliares).
-5. Esperar dejando la pantalla activa. Si funciona, aparecerá IPA bruto y los tiempos de carga e inferencia.
-6. «Copiar resultados» permite pegar la secuencia reconocida y las métricas. No copia audio.
+1. **Repetibilidad:** ejecutar el modelo Q4 **dos veces** sobre exactamente el mismo `Float32Array` de audio preparado a mono/16 kHz. Se compara la secuencia IPA byte por byte y se muestra una huella SHA-256 abreviada del audio PCM.
+2. **Efecto de cuantización:** opcionalmente ejecutar el mismo PCM en `fp16` **en otro worker** y comparar su salida, latencia y distancia de tokens frente a una transcripción IPA de referencia aproximada.
+3. **Control de audio:** el archivo `reference-espeak-en-us.wav` dice «I work in sales» y fue creado con `espeak -v en-us -s 142 -a 160`. **Es sintético, no una grabación humana nativa.** Este control permite detectar fallos básicos, pero NO valida una evaluación de pronunciación; un modelo entrenado en voz natural puede funcionar peor con eSpeak. Para una comparación con hablante nativo real, importar un archivo humano con frase/transcripción conocida y derechos de uso adecuados, sin subirlo a GitHub.
 
-Sin Azure, sin claves, sin servidor, sin puntuaciones inventadas. Se usa un worker ES Module. Modelo ONNX Apache-2.0 alojado en Hugging Face. Se cargan dependencias de `cdn.jsdelivr.net` y `huggingface.co` bajo demanda.
+## Cómo ejecutar desde Android
 
-## Límites
+1. Abrir `https://freddih13-arch.github.io/vox-speak-v3-phoneme-lab/` en Chrome y confirmar `BENCHMARK V0.3`.
+2. Pulsar **Usar control sintético eSpeak (no nativo)**. Escucharlo primero. Selecciona alternativamente una nueva grabación propia o importa otro archivo humano de referencia.
+3. **No activar FP16 en la primera pasada**. Pulsar **Analizar Q4 dos veces (mismo audio)**. El primer análisis descarga Q4 (~89,8 MB); el segundo reutiliza el worker y debe devolver la misma secuencia.
+4. Copiar el reporte, que incluye secuencias IPA y distancias de edición sin calificar pronunciación.
+5. Solo si Chrome tiene memoria/almacenamiento suficientes y estás en Wi-Fi, marcar FP16 (189 MB extra) y repetir el benchmark sobre el mismo archivo. El worker Q4 se destruye antes de crear el worker FP16 para reducir presión de memoria. Si FP16 falla, se registra explícitamente sin simular resultados.
 
-- No hay análisis fonético validado todavía: una predicción IPA no demuestra automáticamente corrección de pronunciación.
-- La inferencia ONNX real **no ha sido probada en Android** antes del primer uso.
-- La primera descarga puede consumir ~100 MB y llevar minutos; usa Wi-Fi. Cuota y caché varían por navegador.
-- La prueba HTTPS es pública: no subas datos privados como grabaciones identificables si no deseas compartirlas. Los archivos de voz se mantienen localmente en el navegador; no se envían a nuestro repositorio ni a Azure.
-- Se necesitan Chrome actualizado y conectividad para descargar el modelo al menos una vez.
+## Interpretación
 
-## Cómo ejecutar tests
+La **distancia de edición** es entre tokens IPA reconocidos por el modelo y una referencia fonética **aproximada** (en-US). No es un porcentaje de acierto ni diagnóstico del acento, ni valida una pronunciación correcta o incorrecta. Una muestra sintética **no reemplaza** una referencia humana. Comparar FP16 con Q4 separa efectos de cuantización, pero no demuestra validez frente a diferentes acentos.
 
-```
-python3 -m http.server 8765
+- El modelo ONNX solo se descarga después de pulsar **Analizar**.
+- La grabación se mantiene en memoria del navegador, jamás se sube a nuestro GitHub ni a Azure.
+- La librería Transformers.js y los pesos se obtienen respectivamente de jsDelivr y Hugging Face al ejecutar la inferencia.
+- Cada corrida se procesa en Web Worker y no hay almacenamiento persistente de audio personal.
+- Sin Azure, sin API keys y sin puntuaciones fonéticas fabricadas.
+- `fp16` está **sin validar en WASM de Chrome Android** y podría no funcionar o exceder RAM.
+
+## Pruebas ejecutadas
+
+```bash
 node --test tests/*.test.mjs
-python tests/browser_smoke.py
 ```
 
+29/29 pruebas de unidad e integración simulada completadas (incluye audio mono/16 kHz, CTC, carga diferida, selección FP16, edición y archivos HTML). El archivo WAV de referencia fue inspeccionado con el módulo `wave` de Python y contiene audio PCM mono válido de ~1,64 segundos.
 
-## Corrección CTC v0.2 (error model-failed / Could not locate file)
-
-El repositorio de Hugging Face proporciona `vocab.json` y `onnx/model_q4.onnx`, pero no `tokenizer.json`. La antigua carga con `pipeline('automatic-speech-recognition')` puede solicitar ese archivo y fallar antes de cargar ONNX. Para evitarlo, ahora se usan `AutoFeatureExtractor.from_pretrained` y `AutoModelForCTC.from_pretrained` directamente, y un decodificador CTC greedy con el vocabulario IPA exacto (IDs 0-42 + especiales 43/44).
-
-La URL lleva un identificador de versión en los módulos del laboratorio para evitar reutilizar scripts antiguos cacheados. No cambia ningún archivo de producción ni staging. El comportamiento ONNX con el dispositivo Android aún debe validarse mediante la prueba real.
-
-Evidencia local: `node --test tests/*.test.mjs` (22/22 aprobadas), incluidas pruebas simuladas del worker y decodificador. Estas pruebas **no** descargan los 90 MB del modelo real ni validan su latencia.
-
-Si falla de nuevo, el texto ahora muestra el paso exacto (`loading-feature-extractor` o `loading-onnx-model`), útil para localizar un fallo de red/CORS o memoria diferente.
+**NO CONFIRMADO:** prueba del modelo FP16 real en Android, precisión frente a voz humana, y recorrido completo de UI en navegador real (el entorno de Chromium local se bloqueó). Ningún test simulado equivale a inferencia ONNX real. El benchmark Q4 sí fue ejecutado anteriormente por el usuario en su dispositivo y reportó 3 resultados discrepantes; esta versión no ha sido probada aún.

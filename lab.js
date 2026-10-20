@@ -1,88 +1,86 @@
-import { prepareRecordedAudio } from './src/phonetics/audio-processor.js';
-import { LocalPhonemeEngine } from './src/phonetics/phonemes-local.js?v=ctc-v2';
-const $ = id => document.getElementById(id);
-const record = $('record'), stop = $('stop'), upload = $('upload'), analyze = $('analyze');
-const state = $('state'), recordStatus = $('record-status'), playback = $('playback'), progress = $('progress');
-const ipa = $('ipa'), copy = $('copy'), phrase = $('phrase');
-let recorder = null, stream = null, recordedBlob = null, recordingChunks = [], playbackUrl = null;
-let engine = null, recordingTimer = null, startedAt = 0, processing = false;
-let metrics = { duration: null, preparationMs: null, initializationMs: null, inferenceMs: null, model: '' };
-const now = () => performance.now();
-const fmt = n => Number.isFinite(n) ? `${Math.round(n)} ms` : '—';
-const err = e => `[${e.code || e.name || 'unknown'}] ${e.message || 'Error desconocido'}`;
-function setBusy(b) { processing=b; analyze.disabled=b||!recordedBlob; record.disabled=b; upload.disabled=b; stop.disabled=b || !recorder || recorder.state!=='recording'; }
-function setAudio(blob) {
-  if(playbackUrl) URL.revokeObjectURL(playbackUrl);
-  playbackUrl=URL.createObjectURL(blob); playback.src=playbackUrl;playback.hidden=false;
-  recordedBlob=blob; analyze.disabled=false;
-  ipa.textContent='—'; copy.disabled=true; $('dur').textContent='—'; $('prep').textContent='—'; $('load').textContent='—'; $('infer').textContent='—';
-  state.textContent='Audio recibido. Pulsa «Analizar fonemas» para descargar/cargar el modelo.';
-}
-phrase.addEventListener('change',()=>{$('prompt').textContent=`Di en inglés: “${phrase.value}”`});
-upload.addEventListener('change',()=>{
-  if(upload.files?.length){setAudio(upload.files[0]);recordStatus.textContent=`Archivo listo: ${upload.files[0].name}.`}
-});
-async function finishRecording(){
-  if(!recorder||recorder.state==='inactive')return;
-  stop.disabled=true;record.disabled=true;
-  if(recordingTimer) clearTimeout(recordingTimer);
-  try{recorder.requestData?.();recorder.stop()}catch(e){recordStatus.textContent=err(e)}
-}
-record.addEventListener('click',async()=>{
+/** VOX benchmark 0.3: same PCM, 2x Q4 repeatability, optional FP16, synthetic reference.
+ * Never interprets IPA edit distance as pronunciation quality.
+ */
+import {prepareRecordedAudio} from './src/phonetics/audio-processor.js';
+import {LocalPhonemeEngine} from './src/phonetics/phonemes-local.js?v=benchmark-v3';
+import {REFERENCE_TOKENS,tokenize,tokenEditDistance,repeatedOutputsMatch} from './src/phonetics/benchmark-analysis.js';
+const $=id=>document.getElementById(id), now=()=>performance.now();
+const record=$('record'),stop=$('stop'),upload=$('upload'),analyze=$('analyze'),state=$('state');
+const recordStatus=$('record-status'),playback=$('playback'),progress=$('progress'),ipa=$('ipa'),copy=$('copy'),phrase=$('phrase');
+
+let recorder=null,stream=null,audioBlob=null,chunks=[],playbackUrl=null,engine=null,recordTimer=null,startedAt=0,processing=false,controller=null;
+let source='Grabación propia', lastRuns=[], lastHash='', lastPrepMs=null, lastDuration=null;
+const fmt=v=>Number.isFinite(v)?`${Math.round(v)} ms`:'—';
+const err=e=>`[${e?.code||e?.name||'error'}] ${e?.message||'Error no especificado'}`;
+function busy(v){processing=v;record.disabled=v;upload.disabled=v;analyze.disabled=v||!audioBlob;$('reference').disabled=v;stop.disabled=v||!recorder||recorder.state!=='recording';$('cancel').hidden=!v}
+function clearResults(){lastRuns=[];lastHash='';ipa.textContent='—';copy.disabled=true;$('comparison').replaceChildren();$('dur').textContent='—';$('prep').textContent='—';$('load').textContent='—';$('infer').textContent='—';$('technical').textContent='No hay puntuación de pronunciación. Una distancia de edición es solo una discrepancia textual.';}
+function setAudio(blob,kind){if(playbackUrl)URL.revokeObjectURL(playbackUrl);playbackUrl=URL.createObjectURL(blob);playback.src=playbackUrl;playback.hidden=false;audioBlob=blob;source=kind;analyze.disabled=false;clearResults();state.textContent='Audio listo. Se utilizará el mismo archivo en todas las ejecuciones del benchmark.'}
+phrase.addEventListener('change',()=>{$('prompt').textContent=`Di en inglés: “${phrase.value}”`;clearResults()});
+upload.addEventListener('change',()=>{if(upload.files?.length){setAudio(upload.files[0],'Archivo local proporcionado por usuario');recordStatus.textContent=`Audio cargado: ${upload.files[0].name}`}});
+$('reference').addEventListener('click',async()=>{
   if(processing)return;
-  record.disabled=true;recordStatus.textContent='Solicitando permiso de micrófono…';
-  try{
-    if(!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder)throw new Error('Chrome no admite MediaRecorder o getUserMedia en esta página. Comprueba HTTPS.');
-    stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
-    const candidates=['audio/webm;codecs=opus','audio/webm','audio/mp4'];
-    const mime=candidates.find(m=>MediaRecorder.isTypeSupported(m));
-    recordingChunks=[];
-    const r=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);recorder=r;
-    r.ondataavailable=e=>{if(e.data.size)recordingChunks.push(e.data)};
-    r.onstop=()=>{
-      if(recordingTimer)clearTimeout(recordingTimer);
-      stream?.getTracks().forEach(t=>t.stop());stream=null;
-      const blob=new Blob(recordingChunks,{type:r.mimeType||'audio/webm'});
-      if(blob.size){setAudio(blob);recordStatus.textContent=`Grabación lista (${((now()-startedAt)/1000).toFixed(1)} s). Escúchala y pulsa analizar.`}
-      else recordStatus.textContent='La grabación quedó vacía; intenta otra vez.';
-      record.disabled=false;stop.disabled=true;
-    };
-    r.onerror=e=>{recordStatus.textContent='MediaRecorder: '+err(e.error||e)};
-    startedAt=now();r.start(250);
-    stop.disabled=false;
-    recordStatus.textContent='🎙 Grabando. Pronuncia la frase y pulsa «Detener».';
-    recordingTimer=setTimeout(finishRecording,10_000);
-  }catch(e){stream?.getTracks().forEach(t=>t.stop());stream=null;record.disabled=false;recordStatus.textContent='No se pudo grabar: '+err(e)}
+  phrase.value='I work in sales.';phrase.dispatchEvent(new Event('change'));
+  recordStatus.textContent='Cargando control sintético creado con eSpeak, NO voz humana nativa…';
+  try{const r=await fetch('./reference-espeak-en-us.wav');if(!r.ok)throw new Error('HTTP '+r.status);const blob=await r.blob();if(!blob.size)throw new Error('Archivo vacío');setAudio(blob,'Voz sintética eSpeak (control, no nativo)');recordStatus.textContent='Control sintético listo. Puedes escucharlo antes de analizar.'}catch(e){recordStatus.textContent='Error al cargar referencia: '+e.message}
+});
+async function finishRecording(){if(!recorder||recorder.state==='inactive')return;stop.disabled=true;record.disabled=true;if(recordTimer)clearTimeout(recordTimer);try{recorder.requestData?.();recorder.stop()}catch(e){recordStatus.textContent=err(e)}}
+record.addEventListener('click',async()=>{
+ if(processing)return;record.disabled=true;recordStatus.textContent='Solicitando micrófono…';
+ try{if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)throw new Error('Micrófono no disponible; abre en Chrome por HTTPS.');
+ stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+ const types=['audio/webm;codecs=opus','audio/webm','audio/mp4'];const mime=types.find(m=>MediaRecorder.isTypeSupported(m));chunks=[];
+ const r=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);recorder=r;
+ r.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+ r.onstop=()=>{if(recordTimer)clearTimeout(recordTimer);stream?.getTracks().forEach(t=>t.stop());stream=null;const blob=new Blob(chunks,{type:r.mimeType||'audio/webm'});
+ if(blob.size){setAudio(blob,'Grabación propia');recordStatus.textContent=`Grabación lista (${((now()-startedAt)/1000).toFixed(1)} segundos). Reproduce y analiza.`}else recordStatus.textContent='La grabación quedó vacía.';record.disabled=false;stop.disabled=true};
+ r.onerror=e=>{recordStatus.textContent='MediaRecorder '+err(e.error||e)};
+ startedAt=now();r.start(250);stop.disabled=false;recordStatus.textContent='🎙 Grabando. Di la frase y detén.';recordTimer=setTimeout(finishRecording,10000);
+ }catch(e){stream?.getTracks().forEach(t=>t.stop());stream=null;record.disabled=false;recordStatus.textContent=err(e)}
 });
 stop.addEventListener('click',finishRecording);
-analyze.addEventListener('click',async()=>{
-  if(!recordedBlob||processing)return;
-  setBusy(true); progress.hidden=true;progress.value=0;ipa.textContent='—';copy.disabled=true;
-  let mark=now(), inferenceStartedAt=null;
+async function hashSamples(samples){const bytes=new Uint8Array(samples.buffer,samples.byteOffset,samples.byteLength);const result=await crypto.subtle.digest('SHA-256',bytes);return [...new Uint8Array(result)].map(x=>x.toString(16).padStart(2,'0')).join('').slice(0,16)}
+function paintRuns(){const container=$('comparison');container.replaceChildren();const expected=REFERENCE_TOKENS[phrase.value]||[];
+ const table=document.createElement('table');table.style.cssText='width:100%;border-collapse:collapse;font-size:.84rem';
+ const h=document.createElement('tr');['Variante','IPA detectada','Distancia*','Inferencia'].forEach(x=>{const th=document.createElement('th');th.textContent=x;th.style.cssText='text-align:left;padding:8px 4px;border-bottom:1px solid #536780';h.append(th)});table.append(h);
+ for(const run of lastRuns){const row=document.createElement('tr');for(const v of [run.name,run.ipaRaw||('Error: '+run.error),Number.isInteger(run.distance)?String(run.distance):'—',fmt(run.inferenceMs)]){const c=document.createElement('td');c.textContent=v;c.style.cssText='padding:8px 4px;border-bottom:1px solid #334560;vertical-align:top;overflow-wrap:anywhere';row.append(c)}table.append(row)}
+ container.append(table);const legend=document.createElement('p');legend.className='muted';legend.textContent='* Distancia de edición entre tokens IPA detectados y referencia APROXIMADA; NO mide calidad de pronunciación. Cuanto menor la distancia, más parecidas son las secuencias.';container.append(legend);
+ const q4=lastRuns.filter(x=>x.dtype==='q4'&&x.ipaRaw);if(q4.length===2){const note=document.createElement('p');note.className='muted';note.textContent=`Repetibilidad Q4 (mismo PCM): ${repeatedOutputsMatch(q4[0],q4[1])?'idéntica':'diferente (revisar no determinismo)'}. SHA-256 PCM: ${lastHash}`;container.append(note)}
+ const last=lastRuns.findLast(x=>x.ipaRaw);ipa.textContent=last?.ipaRaw||'—';copy.disabled=!lastRuns.length;
+}
+async function runVariant(prepared,dtype,name){
+  let started=now(),inferenceStart=null;
+  state.textContent=`Preparando ${name}. Mantén Chrome en primer plano.`;progress.hidden=true;progress.value=0;
+  if(!engine||engine.dtype!==dtype){engine?.dispose();engine=new LocalPhonemeEngine({timeoutMs:300000,dtype})}
   try{
-    state.textContent='Decodificando y convirtiendo a 16 kHz…';
-    const prepared=await prepareRecordedAudio(recordedBlob);
-    metrics.duration=prepared.durationSeconds;metrics.preparationMs=now()-mark;
-    $('dur').textContent=`${prepared.durationSeconds.toFixed(2)} s`;$('prep').textContent=fmt(metrics.preparationMs);
-    state.textContent='Cargando motor (la primera descarga puede tardar)…';
-    engine ??= new LocalPhonemeEngine({timeoutMs:240_000});
-    mark=now();inferenceStartedAt=null;
-    const response=await engine.analyze(prepared,{onProgress:info=>{
-      if(info.stage==='inferencing'){inferenceStartedAt=now();metrics.initializationMs=inferenceStartedAt-mark;$('load').textContent=fmt(metrics.initializationMs);}
-      else {let pct=info.percent==null?NaN:Number(info.percent);if(Number.isFinite(pct)){progress.hidden=false;progress.value=pct}state.textContent=`Motor: ${info.stage||info.type}${Number.isFinite(pct)?' · '+Math.round(pct)+'%':''}. Mantén la pantalla activa.`}
+    const result=await engine.analyze(prepared,{signal:controller.signal,onProgress: info=>{
+      if(info.stage==='inferencing'){inferenceStart=now();$('load').textContent=fmt(inferenceStart-started)}
+      else {const n=info.percent==null?NaN:Number(info.percent);if(Number.isFinite(n)){progress.hidden=false;progress.value=n};state.textContent=`${name}: ${info.stage||info.type}${Number.isFinite(n)?' · '+Math.round(n)+'%':''}. Mantén Chrome abierto.`}
     }});
-    metrics.inferenceMs=response.inferenceMs;metrics.model=response.modelId;
-    if(!Number.isFinite(metrics.initializationMs))metrics.initializationMs=now()-mark-response.inferenceMs;
-    $('load').textContent=fmt(metrics.initializationMs);$('infer').textContent=fmt(metrics.inferenceMs);
-    ipa.textContent=response.ipaRaw;
-    state.textContent='✅ Inferencia ONNX completada en tu navegador. Resultado experimental, sin nota de pronunciación.';
-    $('technical').textContent=`Motor local · ${response.modelId} · sin confianza calibrada. No compara todavía fonemas esperados/detectados.`;
-    copy.disabled=false;
-  }catch(e){state.textContent='⚠️ Error de la prueba: '+err(e)+'. Puedes volver a intentarlo.';if(engine&&['worker-error','timeout','model-failed','worker-unavailable'].includes(e.code)){engine.dispose();engine=null}}
-  finally{setBusy(false)}
+    const expected=REFERENCE_TOKENS[phrase.value]||[];const actual=tokenize(result.ipaRaw);
+    const entry={name,dtype,ipaRaw:result.ipaRaw,inferenceMs:result.inferenceMs,initializationMs:(inferenceStart||now())-started,distance:expected.length?tokenEditDistance(expected,actual):null,tokenCount:actual.length};lastRuns.push(entry);$('infer').textContent=fmt(result.inferenceMs);$('load').textContent=fmt(entry.initializationMs);paintRuns();return entry;
+  }catch(e){if(e.code==='aborted')throw e;const entry={name,dtype,error:err(e),inferenceMs:null,distance:null};lastRuns.push(entry);paintRuns();engine?.dispose();engine=null;state.textContent=`${name}: ${entry.error}. Se continuará con otras pruebas si es posible.`;return entry}
+}
+analyze.addEventListener('click',async()=>{
+ if(!audioBlob||processing)return;busy(true);clearResults();controller=new AbortController();let stopped=false;
+ try{
+   state.textContent='Convirtiendo una sola vez el audio a mono 16 kHz…';const start=now();const prepared=await prepareRecordedAudio(audioBlob);lastPrepMs=now()-start;lastDuration=prepared.durationSeconds;
+   $('dur').textContent=lastDuration.toFixed(2)+' s';$('prep').textContent=fmt(lastPrepMs);lastHash=await hashSamples(prepared.samples);
+   await runVariant(prepared,'q4','Q4 · ejecución 1');
+   if(controller.signal.aborted)throw Object.assign(new Error('Cancelado'),{code:'aborted'});
+   await runVariant(prepared,'q4','Q4 · repetición exacta');
+   if(controller.signal.aborted)throw Object.assign(new Error('Cancelado'),{code:'aborted'});
+   if($('enable-fp16').checked){
+     engine?.dispose();engine=null;
+     await runVariant(prepared,'fp16','FP16 · opcional (189 MB)');
+   }
+   if(controller.signal.aborted)throw Object.assign(new Error('Cancelado'),{code:'aborted'});
+   state.textContent=lastRuns.some(r=>r.error)?'⚠️ Benchmark terminado con errores de modelo; revisa las filas y copia el informe.':'✅ Benchmark terminado. Resultados experimentales, sin nota de pronunciación. Revisa la tabla y copia el informe.';
+ }catch(e){stopped=true;state.textContent='⚠️ Benchmark interrumpido: '+err(e)}
+ finally{engine?.dispose();engine=null;controller=null;busy(false);copy.disabled=!lastRuns.length}
 });
+$('cancel').addEventListener('click',()=>{controller?.abort();engine?.dispose();engine=null;state.textContent='Cancelando análisis…'});
 copy.addEventListener('click',async()=>{
-  const report=['VOX Speak · resultado laboratorio fonético','Frase de referencia: '+phrase.value,'Fonemas reconocidos (experimental): '+ipa.textContent,'Motor: '+(metrics.model||'no finalizado'),'Duración audio: '+(metrics.duration?.toFixed(2)||'—')+' s','Preparación: '+fmt(metrics.preparationMs),'Carga/inicialización: '+fmt(metrics.initializationMs),'Inferencia: '+fmt(metrics.inferenceMs),'Navegador: '+navigator.userAgent.slice(0,190),'No incluye grabaciones, archivos ni claves.'].join('\n');
-  try{await navigator.clipboard.writeText(report);state.textContent='Informe copiado: puedes pegarlo en nuestro chat.'}catch{state.textContent='No se pudo copiar automáticamente. Selecciona el texto IPA y el mensaje de tiempos.'}
+ const report=['VOX Speak · benchmark fonético v0.3','Audio: '+source,'Frase objetivo: '+phrase.value,'Referencia IPA aproximada: '+(REFERENCE_TOKENS[phrase.value]||[]).join(' '),'Huella SHA-256 (16 hex) del mismo audio PCM: '+lastHash,'Duración: '+(lastDuration?.toFixed(2)||'—')+' s','Preparación: '+fmt(lastPrepMs),...lastRuns.map(r=>r.name+': '+(r.ipaRaw||r.error)+' | distancia textual no calibrada: '+(r.distance??'—')+' | inferencia: '+fmt(r.inferenceMs)),'Navegador: '+navigator.userAgent.slice(0,150),'Sin audio, claves ni transcripciones privadas adjuntas. No equivale a evaluación de pronunciación.'].join('\n');
+ try{await navigator.clipboard.writeText(report);state.textContent='Informe copiado. Pégalo en el chat.'}catch{const pre=document.createElement('pre');pre.textContent=report;$('comparison').append(pre);state.textContent='No se pudo copiar automáticamente; selecciona el informe mostrado.'}
 });
-addEventListener('pagehide',()=>{if(recordingTimer)clearTimeout(recordingTimer);stream?.getTracks().forEach(t=>t.stop());if(playbackUrl)URL.revokeObjectURL(playbackUrl);engine?.dispose()});
+addEventListener('pagehide',()=>{controller?.abort();engine?.dispose();if(recordTimer)clearTimeout(recordTimer);stream?.getTracks().forEach(t=>t.stop());if(playbackUrl)URL.revokeObjectURL(playbackUrl)})

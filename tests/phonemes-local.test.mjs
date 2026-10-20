@@ -46,3 +46,12 @@ test('timeouts close hung worker without fake results',async()=>{
   let worker;const engine=new LocalPhonemeEngine({workerFactory:()=>worker=new FakeWorker(),timeoutMs:15});
   await assert.rejects(engine.analyze(audio()),{code:'timeout'});assert.equal(worker.terminated,true);
 });
+
+test('FP16 variant is forwarded to isolated Worker and invalid variants are rejected',async()=>{
+  let w;const engine=new LocalPhonemeEngine({workerFactory:()=>w=new FakeWorker(),dtype:'fp16'});
+  const pending=engine.analyze(audio());
+  assert.equal(w.messages[0].dtype,'fp16');
+  w.respond({type:'result',requestId:1,ipaRaw:'aɪ',dtype:'fp16',phonemeScore:null});
+  const result=await pending;assert.equal(result.dtype,'fp16');engine.dispose();
+  assert.throws(()=>new LocalPhonemeEngine({dtype:'garbage'}),{code:'invalid-dtype'});
+});

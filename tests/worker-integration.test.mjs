@@ -40,7 +40,7 @@ test('worker lazily loads extractor/model and greedily decodes IPA without pipel
  assert.equal(last.type,'result');assert.equal(last.ipaRaw,'aɪ  θ ɪ ŋ k');
  assert.equal(last.phonemeScore,null);assert.equal(last.confidenceAvailable,false);
  assert.equal(h.messages.some(x=>x.stage==='loading-feature-extractor'),true);
- assert.equal(h.messages.some(x=>x.stage==='loading-onnx-model'),true);
+ assert.equal(h.messages.some(x=>x.stage==='loading-onnx-q4'),true);
  assert.equal(h.messages.some(x=>x.stage==='inferencing'),true);
 });
 test('worker surfaces ONNX loading errors as model-failed, no fabricated IPA',async()=>{
@@ -52,6 +52,18 @@ test('worker surfaces ONNX loading errors as model-failed, no fabricated IPA',as
  await h.send(audio());
  const last=h.messages.at(-1);
  assert.equal(last.type,'error');assert.equal(last.code,'model-failed');
- assert.match(last.message,/loading-onnx-model/);
+ assert.match(last.message,/loading-onnx-q4/);
  assert.match(last.message,/model_q4.onnx/);
+});
+
+test('worker loads optional FP16 variant explicitly and identifies result dtype',async()=>{
+ let loadedDtype;const h=await createHarness({
+  env:{backends:{onnx:{wasm:{}}}},
+  AutoFeatureExtractor:{from_pretrained:async()=>async()=>({input_values:'fake'})},
+  AutoModelForCTC:{from_pretrained:async(_,opts)=>{loadedDtype=opts.dtype;return async()=>({logits:logits([1,42,40])})}},
+ });
+ await globalThis.self.onmessage({data:{type:'ANALYZE',requestId:1,samples:audio(),sampleRate:16000,dtype:'fp16'}});
+ assert.equal(loadedDtype,'fp16');
+ assert.equal(h.messages.at(-1).dtype,'fp16');
+ assert.equal(h.messages.at(-1).phonemeScore,null);
 });

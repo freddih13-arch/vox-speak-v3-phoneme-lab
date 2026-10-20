@@ -13,9 +13,12 @@ export class LocalPhonemeError extends Error {
 
 export class LocalPhonemeEngine {
   constructor({
-    workerFactory = () => new Worker(new URL('./phoneme-worker.js?v=ctc-v2', import.meta.url), { type: 'module' }),
-    timeoutMs = 180_000,
+    workerFactory = () => new Worker(new URL('./phoneme-worker.js?v=benchmark-v3', import.meta.url), { type: 'module' }),
+    timeoutMs = 240_000,
+    dtype = 'q4',
   } = {}) {
+    if (!['q4','fp16'].includes(dtype)) throw new LocalPhonemeError('invalid-dtype','Variante no reconocida.');
+    this.dtype = dtype;
     this.workerFactory = workerFactory;
     this.timeoutMs = timeoutMs;
     this.worker = null;
@@ -80,7 +83,7 @@ export class LocalPhonemeEngine {
       const timer = setTimeout(() => this.#failAll('timeout', 'El motor local tardó demasiado. Reintenta o usa una frase más corta.'), this.timeoutMs);
       this.pending.set(requestId, { resolve, reject, timer, signal, onAbort, onProgress });
       signal?.addEventListener('abort', onAbort, { once: true });
-      try { this.worker.postMessage({ type: 'ANALYZE', requestId, samples: copied, sampleRate: 16_000 }, [copied.buffer]); }
+      try { this.worker.postMessage({ type: 'ANALYZE', requestId, samples: copied, sampleRate: 16_000, dtype: this.dtype }, [copied.buffer]); }
       catch (error) { this.#failAll('post-message', `No pude enviar el audio al modelo: ${error.message}`); }
     });
   }
