@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1321"><meta name="description" content="Laboratorio experimental de inferencia fonética de VOX Speak 3.0. No registra notas y no utiliza Azure.">
+<title>VOX Speak · Laboratorio fonético aislado</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1321;--panel:#182338;--muted:#b6c8df;--mint:#6ce4c5;--border:#334560}*{box-sizing:border-box}
+body{font:16px/1.48 system-ui,-apple-system,sans-serif;background:var(--bg);color:#f1f7ff;margin:0;padding:22px 16px 48px}
+main{max-width:660px;margin:0 auto}h1{line-height:1.16;font-size:clamp(1.6rem,6vw,2rem);margin:.6rem 0 1rem}h2{font-size:1.18rem;margin:0 0 .4rem}
+.label{display:inline-flex;border:1px solid #3c8b80;color:var(--mint);font-size:.78rem;font-weight:700;border-radius:99px;padding:4px 10px}
+.card{border:1px solid var(--border);border-radius:20px;background:var(--panel);padding:18px;margin:16px 0}p{margin:.45rem 0 1rem}.muted,small{color:var(--muted)}
+button{font:inherit;font-weight:700;background:#69e3c5;color:#061c19;border:0;border-radius:14px;padding:13px 16px;min-height:48px;cursor:pointer;width:100%;margin:6px 0}
+button.secondary{background:#324662;color:#f7ffff}button:disabled{opacity:.42;cursor:not-allowed}
+select,input[type=file]{width:100%;font:inherit;margin:10px 0 14px;max-width:100%;min-height:42px;color:#fff;background:#22344e;border:1px solid #536780;border-radius:10px;padding:8px}
+select{color-scheme:dark}audio{display:block;width:100%;margin:12px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#0c1626;padding:12px;border-radius:10px;min-height:50px;line-height:1.6}
+fieldset{border:0;padding:0;margin:0}legend{font-weight:700;margin-bottom:.5rem}.metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.metric{padding:10px;border-radius:12px;background:#263651;font-size:.85rem}
+.metric strong{display:block;font-size:1.1rem}progress{width:100%;height:12px;accent-color:#6ce4c5;margin:12px 0}ul{padding-left:20px}.warning{border-left:3px solid #facb74;padding-left:10px}
+</style></head><body><main>
+<span class="label">LABORATORIO INDEPENDIENTE · SOLO PRUEBAS</span>
+<h1>VOX Speak 3.0 · Motor fonético local</h1>
+<p class="muted">Prueba experimental de LJSpeech Gruut en Chrome Android. <strong>No mide todavía calidad de pronunciación</strong>: presenta la secuencia fonética que detecta el modelo, sin puntuaciones.</p>
+<div class="card"><h2>1. Prepara una frase</h2>
+<label for="phrase">Frase sugerida</label>
+<select id="phrase"><option>I think this is important.</option><option>I work in sales.</option><option>I achieved my sales targets.</option></select>
+<p id="prompt" class="muted">Di en inglés: “I think this is important.”</p>
+<button type="button" id="record">🎙 Grabar mi voz (máx. 10 segundos)</button>
+<button type="button" id="stop" class="secondary" disabled>■ Detener grabación</button>
+<div id="record-status" role="status" aria-live="polite">Listo para grabar. Puedes escuchar tu voz antes de analizarla.</div>
+<audio id="playback" controls hidden aria-label="Reproducir mi grabación"></audio>
+<p class="muted">Alternativa: si ya tienes una grabación, elige un archivo desde Android.</p>
+<label for="upload">Archivo de audio (WebM, WAV, M4A compatible)</label><input id="upload" type="file" accept="audio/*">
+</div>
+<div class="card"><h2>2. Ejecuta la inferencia</h2>
+<p class="warning">Primera ejecución: el modelo Q4 ocupa aproximadamente 90 MB, más los archivos auxiliares. Usa Wi-Fi y deja Chrome abierto. No se descarga hasta que pulses analizar.</p>
+<button type="button" id="analyze" disabled>🧠 Analizar fonemas con IA local</button>
+<progress id="progress" max="100" value="0" hidden aria-label="Progreso de descarga"></progress>
+<div id="state" role="status" aria-live="polite">Esperando grabación. Modelo sin descargar.</div>
+<div class="metrics" style="margin-top:12px">
+<div class="metric">Duración audio <strong id="dur">—</strong></div>
+<div class="metric">Preparación <strong id="prep">—</strong></div>
+<div class="metric">Carga/inicialización <strong id="load">—</strong></div>
+<div class="metric">Inferencia <strong id="infer">—</strong></div>
+</div>
+</div>
+<div class="card"><h2>3. Fonemas detectados (IPA sin puntuar)</h2>
+<pre id="ipa" aria-live="polite">—</pre>
+<p id="technical" class="muted">La referencia mostrada arriba es texto; todavía no hacemos alineamiento ni corrección por fonema.</p>
+<button type="button" id="copy" class="secondary" disabled>Copiar resultados para revisión</button>
+</div>
+<small>Privacidad: la inferencia del modelo se realiza en tu navegador después de descargar sus archivos desde Hugging Face. No enviamos tu audio a Azure ni lo subimos a nuestro servidor. Los modelos y librerías se descargan de servicios externos. No guardamos tu voz de forma permanente. En caso de error, copia el mensaje completo para corregirlo.</small>
+</main>
+<script type="module" src="./lab.js"></script>
+</body></html>
